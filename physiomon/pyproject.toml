@@ -1,0 +1,13 @@
+[project]
+name = "physiomon"
+version = "0.1.0"
+description = "Pipeline for ingesting, routing, and storing patient physiological data over HL7 v2 / MLLP"
+requires-python = ">=3.14"
+dependencies = [
+    "duckdb>=1.0.0",
+    "nats-py>=2.14.0",
+    "polars[all]>=1.41.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0"]

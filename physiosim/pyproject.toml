@@ -1,0 +1,8 @@
+[project]
+name = "physiosim"
+version = "0.1.0"
+description = "HL7 v2 patient monitor simulator for testing and demonstration"
+requires-python = ">=3.14"
+dependencies = [
+    "polars[all]>=1.41.0",
+]
