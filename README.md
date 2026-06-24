@@ -7,13 +7,13 @@ HL7 v2 / MLLP physiological monitor aggregators implementing IHE PCD profiles
 ## Architecture
 
 ```
-Monitor aggregator  (or mock generator via sender.py)
-    │  HL7 v2 over MLLP (TCP)
-    ▼
-mllp2nats           Go — receives MLLP, publishes raw bytes to NATS JetStream
-    │  NATS JetStream  stream: HL7   subject: hl7.inbound
-    ▼
-service.py          Python — subscribes, parses HL7, writes to DuckDB staging
+Monitor aggregator  ─or─  physiosim/ (dev/test/demo)
+         └──────── HL7 v2 over MLLP (TCP) ────────┘
+                              │
+                          mllp2nats      Go — receives MLLP, publishes raw bytes to NATS JetStream
+                              │  NATS JetStream  stream: HL7   subject: hl7.inbound
+                              ▼
+                          service.py     Python — subscribes, parses HL7, writes to DuckDB staging
 ```
 
 Three feed types, all delivered to a single configurable MLLP port (default 2575):
@@ -27,16 +27,17 @@ Three feed types, all delivered to a single configurable MLLP port (default 2575
 ## Layout
 
 ```
+physiosim/    Mock HL7 generator and MLLP sender (dev/test/demo only)
+  sender.py     send HL7 via MLLP — case files or stream mode
+  generator.py  mock HL7 generators for all three feed types
+  examples/     reference HL7 sample files (case*.hl7)
 mllp2nats/    Go MLLP→NATS bridge (Windows service in production)
-physiomon/    Python package
+physiomon/    Python HL7 consumer
   service.py    long-running NATS subscriber → DuckDB staging (production)
-  sender.py     send HL7 via MLLP — case files or mock generator (demo/test)
   parser.py     parse_vectorized: HL7 bytes → Polars DataFrame
-  generator.py  mock HL7 message generators for all three feed types
   config.py     all endpoints; overridable via PHYSIOMON_* env vars
-  tests/test.py unit + integration tests
-specs/        Message schema, transport config, parameter reference
-examples/     Reference HL7 sample files (case*.hl7)
+test.py       unit + integration tests (run via physiomon's venv)
+specs/        message schema, transport config, parameter reference
 ```
 
 ## Prerequisites
@@ -72,8 +73,8 @@ cd mllp2nats && ./mllp2nats
 # Terminal 3 — production consumer
 cd physiomon && python service.py
 # Terminal 4 — send data
-cd physiomon && python sender.py                            # case files
-cd physiomon && python sender.py --mode fixed --count 20
+cd physiosim && python sender.py                            # case files
+cd physiosim && python sender.py --mode fixed --count 20
 ```
 
 ## Production
@@ -86,7 +87,7 @@ environment variables; see `physiomon/config.py`.
 
 ```bash
 cd physiomon
-uv run --extra test python -m pytest tests/ -v
+uv run --extra test python -m pytest ../test.py -v
 ```
 
 Unit tests run unconditionally. Integration tests require NATS and `mllp2nats`
