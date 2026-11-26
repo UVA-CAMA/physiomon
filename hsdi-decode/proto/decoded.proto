@@ -1,0 +1,66 @@
+// The messages hsdi-decode publishes to the decoded stream, one per binary
+// frame, on subject hsdi.decoded.<gateway>.<wav|num>. internal/decode encodes
+// them by hand; keep the field numbers in step with internal/decode/encode.go.
+//
+// This is the first candidate format. A comparison of formats may replace it.
+//
+// The messages carry PHI: patient identifiers, locations and real times.
+
+syntax = "proto3";
+
+package hsdi.decoded.v1;
+
+message Frame {
+  string gateway = 1;    // the bridge's name for the gateway, such as PROD1
+  string session_id = 2; // 24 hex digits, upper case
+  // From the latest session update for the session before this frame.
+  // Absent if none named it.
+  Patient patient = 3;
+  uint32 format_id = 4;  // the descriptor's 30-bit format ID
+  uint32 block_sqn = 5;  // the frame's block sequence number
+  int64 start_time = 6;  // the frame's startDateTime, Unix seconds; 0 if absent
+  int64 received_ms = 7; // when the bridge read the frame, Unix milliseconds
+  double rate_hz = 8;    // the descriptor's block rate in Hz; 0 if not given in Hz
+  uint64 raw_seq = 9;    // the frame's sequence number in the raw stream
+  repeated Signal signals = 10;
+}
+
+message Patient {
+  string id = 1;        // primary patient identifier, such as the MRN
+  bool unknown_id = 2;  // the gateway marked the patient unidentified
+  string unit = 3;      // visit location, or the device's if there is none
+  string bed = 4;
+  string patient_status = 5; // ADMIT or DISCHARGE
+  string network = 6;        // ON_LINE or OFF_LINE
+}
+
+message Signal {
+  // Path below params, then the qualifiers that tell signals with the same
+  // path apart: "ecg/wav/ecgWaveformMXG/ecgWaveform lead=II index=1".
+  string name = 1;
+  // The qualifiers and other attributes: lead, respGas, aaGas from the
+  // element; index, label, site, source from its parameter.
+  map<string, string> attrs = 2;
+  string unit = 3;   // U, such as uV or mm[Hg]
+  double scale = 4;  // S; a value is raw * scale + offset
+  double offset = 5;
+  bool offset_unknown = 6; // offset="UNK"
+
+  // Raw values, before scale and offset. Exactly one of these is set,
+  // unless the data pointer was null.
+  repeated sint64 values = 7;        // integer types
+  repeated double float_values = 8;  // xs:float, xs:double
+  bytes samples_le16 = 9;            // arrays of xs:short: little-endian int16
+
+  string null = 10; // the null-pointer flavour, such as NULL or MISS
+
+  // The descriptor's invalid values (INV with mapINV) and bounds (INV_LE,
+  // INV_GE). A raw value equal to one, or at or beyond a bound, is not a
+  // measurement.
+  repeated sint64 invalid = 11;
+  repeated string invalid_reason = 12;
+  optional sint64 invalid_le = 13;
+  optional sint64 invalid_ge = 14;
+
+  map<sint64, string> enum = 15; // raw value to token, from enumList
+}

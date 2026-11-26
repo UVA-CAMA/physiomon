@@ -13,14 +13,15 @@ flush-interval complexity.
 
 ## Write strategy: DuckDB staging → daily parquet archive
 
-`service.py` appends every message to `out/staging/staging.duckdb` as it
-arrives. A nightly compaction step (not yet implemented) merges the staging
-tables into per-location-per-day parquet files:
+`service.py` appends every message to one DuckDB file per UTC day (see
+*Staging layout* below). A compaction step (not yet implemented; format still
+undecided) turns closed days into
+per-location-per-day files:
 
 ```
 out/
   staging/
-    staging.duckdb          ← live; one row per OBX segment
+    YYYYMMDD.duckdb         ← one per UTC day; today and yesterday held open
   archive/
     vitals/{year}/{unit}/{bed}/{date}.parquet
     waveforms/{year}/{unit}/{bed}/{date}.parquet
@@ -28,6 +29,28 @@ out/
 ```
 
 Parquet files are written atomically (`.tmp` → rename).
+
+---
+
+## Staging layout: day files, one waveforms table, by-bed partitioning deferred
+
+Decided 2026-11-11.
+
+- **One DuckDB file per UTC day**, routed by MSH-7, falling back to NATS arrival
+  time. Closed days can be moved or read without stopping the service.
+- **Message key `msg_seq`** (NATS stream sequence). Writes are idempotent on
+  redelivery. On a one-bed read, the `msg_seq` join was ~3x faster than the GUID.
+- **Waveforms as packed int16 BLOBs in one `waveforms` table** for all beds.
+- **Partitioning by bed is deferred to the archive step.** In a 700-bed local
+  benchmark, per-bed tables (table per bed, per bed + signal, or column-per-signal)
+  were:
+  - 7–13x slower to ingest;
+  - up to 2x larger;
+  - prone to stalling single batches for 26–52 s at checkpoints.
+
+  The one-table read of one bed-hour was 21 ms vs 0.5 ms for per-bed tables, which
+  is fast enough. Revisit with real data when the archive format is chosen.
+- **`checkpoint_threshold` 1GB** (DuckDB default 16MB checkpointed nearly every batch).
 
 ---
 
@@ -39,9 +62,10 @@ arrives only when the device has an ADT match, which is not guaranteed.
 
 A location-day file may contain rows for multiple patients (bed turnover
 within a day is routine in an ICU). Patient-centric queries require either a
-catalog lookup or a column scan on `pid_patient_id`.
+catalog lookup or a join through the `pid` table on `msg_ctrl_id`.
 
-`pid_patient_id` is stored as a nullable column in all three staging tables.
+Patient identity lives in the `pid` staging table (one row per message that
+carried a PID segment), joined to the other tables on `msg_ctrl_id`.
 No placeholder rows (`UNKNOWN_xxx`) are created.
 
 ---
@@ -74,8 +98,12 @@ default `"physiomon-service"`). Each message is ACKed immediately after its
 rows are committed to DuckDB. On restart, the durable consumer resumes from
 the last ACKed position — no messages are lost or reprocessed.
 
-`DeliverPolicy.NEW` is used on first consumer creation so the service does not
-replay the entire stream history on initial deploy.
+`DeliverPolicy.ALL` is used on first consumer creation so messages published
+before the service first starts (e.g. mllp2nats running ahead of physiomon on a
+new deploy) are not skipped. The policy only applies when the durable is first
+created; afterwards the consumer resumes from its last ACKed position. Deleting
+or renaming the durable therefore replays the whole stream (up to 10 GB) — and
+since staging writes are not yet idempotent, that produces duplicate rows.
 
 ---
 
@@ -117,7 +145,7 @@ At 600 beds with all feeds active: ~135 GB/day parquet. Without WCM: ~1 GB/day.
 
 ## Batch ingest: transaction cost dominates at small batch sizes
 
-`service.py` collects up to `NATS_BATCH_SIZE` messages (default 50) per
+`service.py` collects up to `NATS_BATCH_SIZE` messages (default 500; was 50 until 2026-11-11) per
 `fetch()` call and writes them in a single DuckDB transaction via
 `ingest_batch`. Benchmark (`physiomon/benchmark.py`, 500 msgs, on-disk DuckDB,
 M-series Mac):

@@ -1,4 +1,4 @@
-"""Benchmark service.ingest throughput by message type and backend.
+"""Benchmark service.ingest_batch throughput by message type and batch size (on-disk day files).
 
 Usage:
     cd <repo-root>
@@ -16,6 +16,8 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "physiomon"))
 sys.path.insert(0, str(ROOT / "physiosim"))
 
+import duckdb
+
 import service
 from generator import generate_dec, generate_acm, generate_wcm, make_patients
 
@@ -26,42 +28,29 @@ def _messages(feed: str, count: int) -> list[bytes]:
     return [gen(p).encode() for _ in range(count)]
 
 
-def _bench_one(label: str, messages: list[bytes], db_path: str) -> None:
-    con = service.open_staging_db(db_path)
-    n = len(messages)
-
-    t0 = time.perf_counter()
-    for raw in messages:
-        service.ingest(con, raw)
-    elapsed = time.perf_counter() - t0
-
-    total_rows = sum(
-        con.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
-        for t in ("msh", "obr", "numerics", "waveforms", "alarms")
+def _rows(staging_dir: str) -> int:
+    con = duckdb.connect()
+    files = list(Path(staging_dir).rglob("*.duckdb"))
+    for i, f in enumerate(files):
+        con.execute(f"ATTACH '{f.as_posix()}' AS f{i} (READ_ONLY)")
+    total = sum(
+        con.execute(f"SELECT count(*) FROM f{i}.{t}").fetchone()[0]
+        for i in range(len(files)) for t in ("msh", "obr", "numerics", "waveforms", "signals", "alarms")
     )
     con.close()
-
-    print(
-        f"  {label:<34}  {n / elapsed:>7.0f} msg/s  "
-        f"{total_rows / elapsed:>9.0f} rows/s  "
-        f"({elapsed:.2f}s, {total_rows} rows)"
-    )
+    return total
 
 
-def _bench_batch(label: str, messages: list[bytes], db_path: str, batch_size: int) -> None:
-    con = service.open_staging_db(db_path)
+def _bench(label: str, messages: list[bytes], staging_dir: str, batch_size: int) -> None:
+    store = service.Staging(staging_dir)
     n = len(messages)
 
     t0 = time.perf_counter()
     for i in range(0, n, batch_size):
-        service.ingest_batch(con, messages[i:i + batch_size])
+        service.ingest_batch(store, messages[i:i + batch_size], list(range(i + 1, min(i + batch_size, n) + 1)))
     elapsed = time.perf_counter() - t0
-
-    total_rows = sum(
-        con.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
-        for t in ("msh", "obr", "numerics", "waveforms", "alarms")
-    )
-    con.close()
+    store.close()
+    total_rows = _rows(staging_dir)
 
     print(
         f"  {label:<34}  {n / elapsed:>7.0f} msg/s  "
@@ -82,11 +71,9 @@ def main() -> None:
     for feed in ("DEC", "ACM", "WCM"):
         msgs = _messages(feed, args.count)
         with tempfile.TemporaryDirectory() as d:
-            _bench_one(f"{feed} one-at-a-time  in-memory", msgs, ":memory:")
-            _bench_one(f"{feed} one-at-a-time  on-disk  ", msgs, str(Path(d) / "one.duckdb"))
+            _bench(f"{feed} one-at-a-time", msgs, str(Path(d) / "one"), 1)
             for bs in batch_sizes:
-                _bench_batch(f"{feed} batch={bs:<4} in-memory", msgs, ":memory:", bs)
-                _bench_batch(f"{feed} batch={bs:<4} on-disk  ", msgs, str(Path(d) / f"batch{bs}.duckdb"), bs)
+                _bench(f"{feed} batch={bs:<4}", msgs, str(Path(d) / f"batch{bs}"), bs)
         print()
 
 

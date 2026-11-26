@@ -1,0 +1,6 @@
+bench_data*/
+*.duckdb
+*.duckdb.wal
+__pycache__/
+*.pyc
+.venv/

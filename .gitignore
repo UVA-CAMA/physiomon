@@ -3,3 +3,7 @@ out
 __pycache__
 .pytest_cache
 *.real.hl7
+target
+*.egg-info
+specs/priv/
+data/

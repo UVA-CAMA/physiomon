@@ -10,7 +10,7 @@ This repo is a pipeline for ingesting HL7 v2 messages from IHE PCD-compliant phy
 physiosim/          Python — mock HL7 generator and MLLP sender (dev/test/demo only)
     │  MLLP (TCP)
     ▼
-mllp2nats/          Go — receives MLLP, publishes raw bytes to NATS JetStream
+mllp-bridge/        Go — receives MLLP, publishes raw bytes to NATS JetStream (mllp2nats)
     │  NATS JetStream (stream: HL7, subject: hl7.inbound)
     ▼
 physiomon/          Python — subscribes to NATS, parses HL7 → Polars DataFrames, writes DuckDB/parquet
@@ -21,20 +21,22 @@ Root-level files:
 - `test.py` — all tests (unit + integration); run via physiomon's venv
 - `benchmark.py` — ingest throughput benchmarking
 
-**Three feed types** (all currently on port 2575; spec-defined separate ports are DEC:2575, ACM:2576, WCM:2577):
+**Three feed types**, one MLLP port each in production (DEC:2575, ACM:2576, WCM:2577 — one `mllp2nats` process listening on all three, `--listen DEC=:2575 --listen ACM=:2576 --listen WCM=:2577`, publishing to `hl7.inbound`; see `mllp-bridge/run-all.bat`). `physiosim` sends all three to 2575 by default:
 - **DEC** — `ORU^R01` numeric vitals (HR, IBP, SpO2, temp, ST segments)
 - **ACM** — `ORU^R40` alarm lifecycle events
 - **WCM** — `ORU^R01` 12-lead ECG waveforms (1440 samples @ 240 Hz, 6-second batches)
 
 **HL7 segment delimiter quirk:** Real aggregator messages use `\n` (LF), not `\r` (CR). `parse_vectorized` normalises both. Generators emit `\n`.
 
-**Parser:** `parse_vectorized(messages: list[bytes])` — vectorised Polars, no Python loops over rows. One row per OBX segment with MSH/PID/PV1/OBR context forward-filled. Output split by `value_type`: NM/NR → numerics, NA → waveforms, ST → alarms.
+**Parser:** `parse_vectorized(messages: list[bytes], seqs) -> ParsedMessage` — vectorised Polars, no Python loops over rows. Returns per-segment DataFrames (`msh`, `pid`, `pv1`, `obr`, `obx`), all keyed on `msg_seq` (the NATS stream sequence); `msh` also keeps `msg_ctrl_id` (MSH-10). `service.ingest_batch` splits `obx` by `value_type`: NM/NR → numerics, NA → waveforms, ST → alarms.
 
-**Deduplication** is keyed on `MSH-10` (message control ID, a UUID in live data). `dedup()` handles within-batch; `dedup_rolling(window)` handles cross-batch.
+**Staging** (DuckDB): one file per UTC day, `out/staging/YYYYMMDD.duckdb`, each with tables `msh`, `pid`, `pv1`, `obr`, `numerics`, `waveforms`, `signals`, `alarms` — join on `msg_seq`. A message's day is its MSH-7 timestamp (`msh.msg_ts`, UTC), or its NATS arrival time (`received_at`) when MSH-7 is missing or has no UTC offset. `service.Staging` attaches day files to one in-memory session: today and yesterday stay attached; older days are reopened for late data; a day whose file was moved away goes to `late/YYYYMMDD.duckdb`. `numerics` and `msh` carry `feed` (DEC/WCM/ACM). `signals` holds the per-channel waveform attributes (sample rate, data range, sentinels), not `numerics`.
+
+**Idempotent writes:** `ingest_batch` skips messages whose `msg_seq` the day file already holds, so NATS redelivery doesn't duplicate rows. `dedup()` / `dedup_rolling()` in `parser.py` (MSH-10) are dormant.
 
 **Config** — all endpoints in `physiomon/config.py`, overridable via env vars. See `config.py` for the full list.
 
-**NATS stream** is created automatically by `service.py` on first connect (compression=s2, max 10 GB).
+**NATS stream** is created automatically by `service.py` on first connect (subjects=`hl7.inbound`, compression=s2, max 10 GB).
 
 **specs/** contains the authoritative upstream interface docs (see `specs/README.md` for index).
 `specs/priv/` is gitignored and holds the original vendor PDF and unredacted sample files.
@@ -43,12 +45,13 @@ Root-level files:
 
 ## Commands
 
-### mllp2nats (Go)
+### mllp-bridge (Go)
 
 ```bash
-cd mllp2nats
-go build -o mllp2nats .
-./mllp2nats                      # defaults: port 2575, nats://127.0.0.1:4222, ACKs enabled
+cd mllp-bridge
+go build -o mllp2nats ./cmd/mllp2nats
+./mllp2nats                      # defaults: one listener on :2575, nats://127.0.0.1:4222, ACKs disabled
+go test ./...
 ```
 
 ### physiomon (Python — run from `physiomon/`)
@@ -56,6 +59,9 @@ go build -o mllp2nats .
 ```bash
 cd physiomon
 python service.py                   # production consumer — writes to DuckDB staging
+python progress.py                  # processed vs received rate (speedup factor), pending, catch-up ETA
+python export.py --out <dir>        # dump each day file's tables to zstd parquet, <dir>/<day>/ (stop service.py first)
+python export_deid.py --out <dir> --keys <dir>  # de-identified export: pseudonyms, per-bed date shift to 2000-01-01; keys stay on the server
 ```
 
 ### physiosim (Python — run from `physiosim/`)
@@ -79,8 +85,8 @@ uv run --extra test python -m pytest ../test.py -v      # all tests (unit always
 ### Demo (everything at once)
 
 ```bash
-python demo.py                            # starts NATS + mllp2nats + service, sends fixed-mode messages
-python demo.py --mode stream --patients 2
+python demo.py                            # starts NATS + mllp2nats + service, sends simulated messages
+python demo.py --patients 2 --duration 30
 ```
 
 `demo.py` is at the repo root. Detects already-running services, skips starting them, and stops what it started on exit. Requires `mllp2nats` to be built first.
@@ -89,7 +95,7 @@ python demo.py --mode stream --patients 2
 
 ```bash
 nats-server -js &               # JetStream-enabled NATS
-./mllp2nats/mllp2nats &         # MLLP bridge
+./mllp-bridge/mllp2nats &       # MLLP bridge
 python physiomon/service.py &   # HL7 consumer
 ```
 
@@ -97,19 +103,20 @@ python physiomon/service.py &   # HL7 consumer
 
 - **Parser must be data-element lossless.** Every segment field that carries a value in a real message must appear as a named column. A field being empty in test/sample data is not justification for omitting it from the schema. "No data loss" means any query answerable against the original HL7 message is answerable against the parsed output — byte-for-byte reconstruction is not required.
 
-- **Stream creation ordering.** `mllp2nats` does not create the NATS stream — if the stream is missing, publishes fail silently. `service.py` creates it on first connect via `_ensure_stream`. Start `service.py` before sending data, or create the stream manually with the NATS CLI.
+- **Stream creation ordering.** `mllp2nats` does not create the NATS stream — if the stream is missing, every publish fails and mllp2nats closes the sender's connection (logged as a publish error). `service.py` creates it on first connect via `_ensure_stream`. Start `service.py` before sending data, or create the stream with the NATS CLI (command in `mllp-bridge/README.md`).
 
-- **ACKs are disabled by default.** `mllp2nats` uses `--ack` to opt in. `physiosim/sender.py` drains the socket with a short timeout so it works in either mode without changes.
+- **ACKs are disabled by default and real installations don't use them.** Per the vendor, aggregators in the field run with `Wait For ACK` off, even though the spec docs describe ACK as the default. `mllp2nats --ack` exists but is not expected to be needed. `physiosim/sender.py` drains the socket with a short timeout so it works in either mode without changes.
 
-- **DuckDB is single-writer.** `staging.duckdb` is locked exclusively while `service.py` is running. You cannot open a second connection (e.g. for inspection) until the service is stopped. Use `read_only=True` only after the service has shut down.
+- **DuckDB is single-writer.** Attached day files (today, yesterday, and any reopened day) are locked exclusively while `service.py` is running; older day files can be read directly. To read the attached days live, set `PHYSIOMON_QUACK_LISTEN` + `PHYSIOMON_QUACK_TOKEN`: `Staging.serve` serves the session over DuckDB Quack (localhost), with `<table>_all` views over the attached days in the default catalog. Readers see committed batches only. `_replace_views` must run before a `DETACH`, or the views name a missing day.
 
-- **Deduplication is not yet enforced at the infrastructure level.** Two improvements are planned but not implemented: (1) `mllp2nats` should set a `Nats-Msg-Id` header using MSH-10 to prevent publish-side duplicates in the stream; (2) the staging tables should have PRIMARY KEY / UNIQUE constraints with `INSERT OR IGNORE` to make consumer-side writes idempotent. Together these replace `dedup` / `dedup_rolling` in `parser.py`, which are currently dormant. Until then, the narrow crash window between DuckDB write and NATS ACK can produce duplicate rows.
+- **Consumer-side writes are idempotent; publish-side duplicates are not yet prevented.** A redelivered message has the same `msg_seq` and is skipped. A message published twice (e.g. a sender retry) gets two sequences and is stored twice; `mllp2nats` should set a `Nats-Msg-Id` header from MSH-10 to stop that (planned).
+- **One transaction per day file.** DuckDB can write only one attached database per transaction, so a batch spanning midnight commits once per day. The `msg_seq` skip makes a retry after a partial failure safe.
 
-- **`msg_id` is ephemeral.** `parse_vectorized` adds a `msg_id` UInt32 row-index column used internally for forward-fill grouping within a batch. `service.ingest` drops it before writing to DuckDB. Do not treat it as a stable identifier.
+- **`msg_seq` must be unique within a batch.** It's the NATS stream sequence in the service; tests pass their own. It resets only if the stream is deleted and recreated.
 
-- **Waveform decode happens in `service.ingest`, not the parser.** `parse_vectorized` always returns `value` as a raw `VARCHAR` string. The `^`-delimited integer decode (`value` → `values: list[i16]`) is applied in `service.ingest` for NA-type rows only. `staging_waveforms` has `values SMALLINT[]`; `staging_numerics` and `staging_alarms` have `value VARCHAR`.
+- **Waveform encoding happens in `service.ingest_batch`, not the parser.** `parse_vectorized` always returns `value` as a raw `VARCHAR` string. For NA rows, `service._pack_int16` packs the `^`-delimited samples into `samples BLOB` (little-endian int16; decode with `np.frombuffer(b, "<i2")`). `waveforms.value` is NULL when that is lossless and keeps the original text when any element isn't an int16.
 
-- **`pid_patient_id` is null in all test/case-file data.** The sample HL7 files have PID segments stripped. The column is always nullable; its presence depends on ADT matching in production.
+- **The `pid` table is empty for case-file data.** The sample HL7 files have PID segments stripped (the `physiosim` generator does emit PID). PID is present only when the aggregator has an ADT match, so a message may have no `pid` row.
 
 
 ---

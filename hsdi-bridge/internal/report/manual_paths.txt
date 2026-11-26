@@ -1,0 +1,217 @@
+# Element paths the manual says the gateway sends: supported waveforms (4-22),
+# numerics (4-24 to 4-27) and configuration (4-28). The manual lists them
+# under descriptive headings; here each is given by its element names
+# (bis, co, ...). Each line is parameter/service/path, where path is below
+# <wav>, <num> or <cfg>.
+
+# Waveforms
+ecg/wav/ecgWaveformMXG/ecgWaveform
+ecg/wav/defibSyncMarker
+ecg/wav/qrsMarker
+ecg/wav/paceMarker
+ip/wav/ipWaveform
+spO2/wav/pleth
+
+# BIS
+bis/num/amplitude
+bis/num/bispectralIndex
+bis/num/suppressionRatio
+bis/num/signalQuality
+bis/num/electromyogram
+bis/num/spectralEdgeFrequency
+
+# Cardiac output
+co/num/coMeasurements/episodic/dateTime
+co/num/coMeasurements/episodic/cardiacOutput
+co/num/coMeasurements/episodic/cardiacIndex
+co/num/coMeasurements/episodic/rightVentricularEjectionFraction
+co/num/bloodTemp
+co/num/injectateTemp
+co/num/referenceTemp
+
+# Continuous cardiac output
+cco/num/bloodTemp
+cco/num/continuousCardiacOutput
+cco/num/continuousCardiacIndex
+cco/num/cardiacOutput
+cco/num/cardiacIndex
+cco/num/strokeVolumeVariation
+cco/num/systemicVascularResistance
+cco/num/systemicVascularResistanceIndex
+
+# ECG
+ecg/num/heartRate
+ecg/num/RR_Interval
+ecg/num/stDeviationMXG/stDeviation
+ecg/num/v_p_cRate
+
+# ECG respiration
+ecgResp/num/respRate
+
+# EEG
+eeg/num/amplitude
+eeg/num/electromyogram
+eeg/num/medianFrequency
+eeg/num/relativeDeltaPower
+eeg/num/relativeThetaPower
+eeg/num/relativeAlphaPower
+eeg/num/relativeBetaPower
+eeg/num/signalQualityIndex
+eeg/num/spectralEdgeFrequency
+eeg/num/suppressionRatio
+
+# Entropy
+entropy/num/responseEntropy
+entropy/num/stateEntropy
+entropy/num/suppressionRatio
+
+# Gas delivery
+gasDeliv/num/caseConsumption/respGas
+gasDeliv/num/caseConsumption/aaLiquid
+
+# Monitored gas
+gasMon/num/respiredGas/expendedEnergy
+gasMon/num/respiredGas/fractionalInspiredConc
+gasMon/num/respiredGas/fractionalExpiredConc
+gasMon/num/respiredGas/metabolicConsumption/volO2
+gasMon/num/respiredGas/metabolicProduction/volCO2
+gasMon/num/respiredGas/respiratoryQuotient
+gasMon/num/aaGas/fractionalInspiredConc
+gasMon/num/aaGas/fractionalExpiredConc
+gasMon/num/aaGas/macSum
+gasMon/num/aaGas/macSumAgeCorrected
+
+# ICG
+icg/num/accelerationIndex
+icg/num/cardiacIndex
+icg/num/cardiacOutput
+icg/num/estimatedO2DeliveryIndex
+icg/num/heartRate
+icg/num/leftCardiacWorkIndex
+icg/num/leftVentricularEjectionTime
+icg/num/leftVentricularStrokeWorkIndex
+icg/num/meanArterialPressure
+icg/num/preEjectionPeriod
+icg/num/strokeIndex
+icg/num/strokeVolume
+icg/num/systemicVascularResistance
+icg/num/systemicVascularResistanceIndex
+icg/num/systolicTimeRatio
+icg/num/thoracicFluidContent
+icg/num/velocityIndex
+
+# Infusor (IV pump)
+infusor/num/delivery-pri-sec/currentVolumeInfused
+infusor/num/primary/currentFluidDeliveryRate
+infusor/num/secondary/currentFluidDeliveryRate
+
+# Invasive pressure
+ip/num/cerebralPerfusionPressure
+ip/num/diastolic
+ip/num/mean
+ip/num/pawMeasurements/episodic/dateTime
+ip/num/pawMeasurements/episodic/paw
+ip/num/pulseRate
+ip/num/systolic
+
+# Non-invasive blood pressure
+nbp/num/cuffPressure
+nbp/num/nbpMeasurements/episodic/dateTime
+nbp/num/nbpMeasurements/episodic/diastolic
+nbp/num/nbpMeasurements/episodic/mean
+nbp/num/nbpMeasurements/episodic/pulseRate
+nbp/num/nbpMeasurements/episodic/systolic
+
+# NICO
+nico/num/cardiacIndex
+nico/num/cardiacOutput
+nico/num/pulmonaryCapillaryBloodFlow
+nico/num/signalQuality
+nico/num/strokeVolume
+
+# Respiration
+resp/num/averageExpiredTidalVolume
+resp/num/averageExpiredTidalVolume/spontaneous
+resp/num/averageExpiredTidalVolume/nonSpontaneous
+resp/num/expiredFlowMax
+resp/num/inspiredTidalVolume
+resp/num/expiredTidalVolume
+resp/num/inspiredMinuteVolume
+resp/num/expiredMinuteVolume
+resp/num/expiredMinuteVolume/spontaneous
+resp/num/expiredMinuteVolume/nonSpontaneous
+resp/num/respRate
+resp/num/respRate/spontaneous
+resp/num/respRate/nonSpontaneous
+resp/num/pressure
+resp/num/inspiredPressureMax
+resp/num/plateauPressure/static
+resp/num/plateauPressure/dynamic
+resp/num/plateauPressure/unspecified
+resp/num/PEEP/dynamic
+resp/num/PEEP/dynamic/intrinsic
+resp/num/PEEP/dynamic/extrinsic
+resp/num/PEEP/static
+resp/num/PEEP/static/intrinsic
+resp/num/PEEP/static/extrinsic
+resp/num/ambientPressure
+resp/num/resistance/dynamic
+resp/num/resistance/unspecified
+resp/num/resistance/expiratory
+resp/num/compliance/static
+resp/num/compliance/dynamic
+resp/num/compliance/unspecified
+resp/num/inspiratoryTime
+resp/num/expiratoryTime
+resp/num/IERatio
+resp/num/workOfBreathing
+
+# SaO2
+saO2/num/satO2
+
+# SpO2
+spO2/num/pulseRate
+spO2/num/satO2
+spO2/num/satSeconds
+spO2/num/percentModulation
+
+# SvO2
+svO2/num/venousOxygenSaturation
+
+# TCO2
+tcO2/num/CO2
+tcO2/num/O2
+tcO2/num/power
+tcO2/num/sensorTemp
+tcO2/num/siteTimer
+
+# Temperature
+temp/num/temp
+
+# Urimeter
+urimeter/num/volume
+urimeter/num/temp
+
+# Configuration: gas delivery
+gasDeliv/cfg/respiredGas/freshGas/conc
+gasDeliv/cfg/respiredGas/freshGas/flow
+
+# Configuration: respiration
+resp/cfg/biasFlow
+resp/cfg/highFrequency/flow
+resp/cfg/highFrequency/pressure
+resp/cfg/highFrequency/respRate
+resp/cfg/highPressure
+resp/cfg/highTime
+resp/cfg/IERatio
+resp/cfg/inspiredPressure
+resp/cfg/lowPressure
+resp/cfg/lowTime
+resp/cfg/pause/inspiratoryTime
+resp/cfg/PEEP
+resp/cfg/respRate
+resp/cfg/riseTime
+resp/cfg/supportPressure
+resp/cfg/tidalVolume
+resp/cfg/trigger/flow
+resp/cfg/trigger/pressure

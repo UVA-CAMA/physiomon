@@ -1,0 +1,30 @@
+[project]
+name = "quack-bench"
+version = "0.1.0"
+description = "Does serving a live DuckDB ingest over Quack slow the writer? Readers vs ingest throughput, freshness, day-file rollover and crash safety."
+readme = "README.md"
+authors = [
+    { name = "Ian German Mesner", email = "mesner@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "duckdb>=2.0.0",
+    "numpy>=2.5.1",
+    "pyarrow>=25.0.0",
+]
+
+[project.scripts]
+bench = "qbench.cli:main"
+bench-read = "qbench.readcost:main"
+
+[build-system]
+requires = ["uv_build>=0.13.5,<0.14.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "qbench"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

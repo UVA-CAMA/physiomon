@@ -16,9 +16,9 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class ParsedMessage:
-    """One message parsed into per-segment DataFrames.
+    """One message parsed into per-segment DataFrames, all keyed on msg_seq.
 
-    msh — one row (always present)
+    msh — one row (always present); the only frame carrying msg_ctrl_id
     pid — zero or one rows (present only when ADT match exists)
     pv1 — one row
     obr — one row per OBR group
@@ -34,33 +34,34 @@ class ParsedMessage:
 def _empty_parsed() -> ParsedMessage:
     return ParsedMessage(
         msh=pl.DataFrame(schema={
-            "msg_ctrl_id": pl.String, "sending_app": pl.String,
+            "msg_seq": pl.UInt64, "msg_ctrl_id": pl.String, "sending_app": pl.String,
             "sending_facility": pl.String, "receiving_app": pl.String,
             "receiving_facility": pl.String, "msg_timestamp": pl.String,
             "msg_type": pl.String, "processing_id": pl.String,
             "version_id": pl.String, "accept_ack_type": pl.String,
             "app_ack_type": pl.String, "msg_profile": pl.String,
+            "msg_ts": pl.Datetime("us", "UTC"),
         }),
         pid=pl.DataFrame(schema={
-            "msg_ctrl_id": pl.String,
+            "msg_seq": pl.UInt64,
             "patient_id_list": pl.String, "patient_name": pl.String,
             "dob": pl.String, "admin_sex": pl.String, "account_number": pl.String,
         }),
         pv1=pl.DataFrame(schema={
-            "msg_ctrl_id": pl.String,
+            "msg_seq": pl.UInt64,
             "patient_class": pl.String, "patient_location": pl.String,
             "visit_number": pl.String, "admit_datetime": pl.String,
             "visit_indicator": pl.String,
         }),
         obr=pl.DataFrame(schema={
-            "msg_ctrl_id": pl.String,
+            "msg_seq": pl.UInt64,
             "obr_set_id": pl.String, "placer_order_num": pl.String,
             "filler_order_num": pl.String, "service_id": pl.String,
             "obs_start_time": pl.String, "obs_end_time": pl.String,
             "parent_number": pl.String,
         }),
         obx=pl.DataFrame(schema={
-            "msg_ctrl_id": pl.String, "obr_set_id": pl.String,
+            "msg_seq": pl.UInt64, "obr_set_id": pl.String,
             "obx_set_id": pl.String, "value_type": pl.String,
             "obs_identifier": pl.String, "obs_code": pl.String, "obs_name": pl.String,
             "sub_id": pl.String, "channel": pl.Int32,
@@ -71,12 +72,25 @@ def _empty_parsed() -> ParsedMessage:
     )
 
 
-def parse_vectorized(messages: list[bytes]) -> ParsedMessage:
+# HL7 TS with optional fraction. Offset-less values are ambiguous (local time of an
+# unknown zone), so they parse to null and callers fall back to arrival time.
+_TS_FORMATS = ["%Y%m%d%H%M%S%.f%z", "%Y%m%d%H%M%S%z", "%Y%m%d%H%M%z"]
+
+
+def _hl7_ts(col: pl.Expr) -> pl.Expr:
+    return pl.coalesce([
+        col.str.to_datetime(f, strict=False, time_unit="us", time_zone="UTC") for f in _TS_FORMATS
+    ])
+
+
+def parse_vectorized(messages: list[bytes], seqs: list[int] | None = None) -> ParsedMessage:
     """Vectorized HL7 → per-segment DataFrames. No Python loops over rows.
 
     Segment delimiter normalised (\\r or \\n both accepted).
-    msg_ctrl_id (MSH-10) and obr_set_id (OBR-1) are forward-filled as FK
-    join keys so every derived table links back to its message and OBR group.
+    seqs are the messages' unique keys (the NATS stream sequence in the service;
+    0..n-1 if omitted). Every frame carries them as msg_seq, and obr_set_id (OBR-1)
+    is forward-filled so OBX rows link back to their OBR group.
+    msg_ts is MSH-7 parsed to UTC; null if unparseable or without a UTC offset.
 
     Segments extracted per spec-message-schema.md (aggregator Y fields only):
       MSH: sending_app(3) sending_facility(4) receiving_app(5)
@@ -99,8 +113,10 @@ def parse_vectorized(messages: list[bytes]) -> ParsedMessage:
     g = pl.col("f")
 
     df = (
-        pl.DataFrame({"raw": [m.decode() for m in messages]})
-        .with_row_index("msg_id")
+        pl.DataFrame({
+            "raw": [m.decode() for m in messages],
+            "msg_seq": pl.Series(seqs if seqs is not None else range(len(messages)), dtype=pl.UInt64),
+        })
         .with_columns(
             pl.col("raw").str.replace_all("\n", "\r").str.split("\r").alias("segs")
         )
@@ -112,19 +128,17 @@ def parse_vectorized(messages: list[bytes]) -> ParsedMessage:
         )
     )
 
-    # Forward-fill msg_ctrl_id and obr_set_id as FK join keys
+    # Forward-fill obr_set_id as the OBX → OBR join key
     df = df.with_columns(
-        _msg_ctrl_id=pl.when(pl.col("seg_type") == "MSH").then(g.list.get(9, null_on_oob=True)),
-        _obr_set_id =pl.when(pl.col("seg_type") == "OBR").then(g.list.get(1, null_on_oob=True)),
-    ).with_columns(
-        msg_ctrl_id=pl.col("_msg_ctrl_id").forward_fill().over("msg_id"),
-        obr_set_id =pl.col("_obr_set_id").forward_fill().over("msg_id"),
+        obr_set_id=pl.when(pl.col("seg_type") == "OBR").then(g.list.get(1, null_on_oob=True))
+        .forward_fill().over("msg_seq"),
     )
 
     msh = (
         df.filter(pl.col("seg_type") == "MSH")
         .select([
-            pl.col("msg_ctrl_id"),
+            pl.col("msg_seq"),
+            g.list.get(9,  null_on_oob=True).alias("msg_ctrl_id"),
             g.list.get(2,  null_on_oob=True).alias("sending_app"),
             g.list.get(3,  null_on_oob=True).alias("sending_facility"),
             g.list.get(4,  null_on_oob=True).alias("receiving_app"),
@@ -137,12 +151,13 @@ def parse_vectorized(messages: list[bytes]) -> ParsedMessage:
             g.list.get(15, null_on_oob=True).alias("app_ack_type"),
             g.list.get(20, null_on_oob=True).alias("msg_profile"),
         ])
+        .with_columns(msg_ts=_hl7_ts(pl.col("msg_timestamp")))
     )
 
     pid = (
         df.filter(pl.col("seg_type") == "PID")
         .select([
-            pl.col("msg_ctrl_id"),
+            pl.col("msg_seq"),
             g.list.get(3,  null_on_oob=True).alias("patient_id_list"),
             g.list.get(5,  null_on_oob=True).alias("patient_name"),
             g.list.get(7,  null_on_oob=True).alias("dob"),
@@ -154,7 +169,7 @@ def parse_vectorized(messages: list[bytes]) -> ParsedMessage:
     pv1 = (
         df.filter(pl.col("seg_type") == "PV1")
         .select([
-            pl.col("msg_ctrl_id"),
+            pl.col("msg_seq"),
             g.list.get(2,  null_on_oob=True).alias("patient_class"),
             g.list.get(3,  null_on_oob=True).alias("patient_location"),
             g.list.get(19, null_on_oob=True).alias("visit_number"),
@@ -166,7 +181,7 @@ def parse_vectorized(messages: list[bytes]) -> ParsedMessage:
     obr = (
         df.filter(pl.col("seg_type") == "OBR")
         .select([
-            pl.col("msg_ctrl_id"),
+            pl.col("msg_seq"),
             g.list.get(1,  null_on_oob=True).alias("obr_set_id"),
             g.list.get(2,  null_on_oob=True).alias("placer_order_num"),
             g.list.get(3,  null_on_oob=True).alias("filler_order_num"),
@@ -200,7 +215,7 @@ def parse_vectorized(messages: list[bytes]) -> ParsedMessage:
             channel =pl.col("sub_id").str.split(".").list.get(2, null_on_oob=True).cast(pl.Int32, strict=False),
         )
         .select([
-            "msg_ctrl_id", "obr_set_id",
+            "msg_seq", "obr_set_id",
             "obx_set_id", "value_type", "obs_identifier", "obs_code", "obs_name",
             "sub_id", "channel", "value", "units", "ref_range", "abn_flag",
             "result_status", "obs_datetime", "equipment_id", "obs_site",

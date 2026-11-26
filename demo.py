@@ -6,7 +6,7 @@ script are stopped on exit; already-running services are left alone.
 
 Usage:
     python demo.py                           # fixed, 1 patient, 20 msgs
-    python demo.py --mode stream --patients 2
+    python demo.py --patients 2 --duration 30
     python demo.py --help                    # shows sender.py help
 """
 
@@ -22,7 +22,7 @@ ROOT        = Path(__file__).resolve().parent
 PHYSIO      = ROOT / "physiomon"
 PHYSIO_SIM  = ROOT / "physiosim"
 EXE         = ".exe" if sys.platform == "win32" else ""
-MLLP_BIN   = ROOT / "mllp2nats" / f"mllp2nats{EXE}"
+MLLP_BIN   = ROOT / "mllp-bridge" / f"mllp2nats{EXE}"
 
 # These match the defaults in physiomon/config.py.
 # If you override via PHYSIOMON_* env vars, start services manually instead.
@@ -68,7 +68,7 @@ def _start_mllp2nats() -> None:
     if not MLLP_BIN.exists():
         sys.exit(
             f"mllp2nats binary not found: {MLLP_BIN}\n"
-            f"  Build it first:  cd mllp2nats && go build -o mllp2nats{EXE} ."
+            f"  Build it first:  cd mllp-bridge && go build -o mllp2nats{EXE} ./cmd/mllp2nats"
         )
     p = subprocess.Popen([str(MLLP_BIN)],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

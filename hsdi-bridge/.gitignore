@@ -1,0 +1,5 @@
+/hsdi2nats
+/fakegw
+/hsdi-report
+*.exe
+/dist/

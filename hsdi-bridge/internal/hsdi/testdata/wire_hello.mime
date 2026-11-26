@@ -1,0 +1,22 @@
+Mime-Version: 1.0
+Content-Type: multipart/mixed;boundary="2667d9f8-7719-470d-b036-9425defc99de"
+Content-Length: 679
+
+--2667d9f8-7719-470d-b036-9425defc99de
+Content-Length: 495
+Content-Type: application/x-sapphire+xml
+Content-Transfer-Encoding: binary
+
+<?xml version="1.0" encoding="UTF-8"?>
+<s:sapphire xmlns:s="urn:ge:sapphire:sapphire_1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.0.1">
+    <hello xmlns="urn:ge:sapphire:helloMsg_1">
+        <header xmlns="urn:ge:sapphire:base_1">
+            <sessionID V="0A010203000007D7695735A5" type="IP-32:PORT-32:NTPS-32"/>
+            <msgCHN V="0"/>
+            <msgSQN V="1"/>
+            <creationDateTime V="2026-01-02T03:04:05Z"/>
+        </header>
+    </hello>
+</s:sapphire>
+
+--2667d9f8-7719-470d-b036-9425defc99de--

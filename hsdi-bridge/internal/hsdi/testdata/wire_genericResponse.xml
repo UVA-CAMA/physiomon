@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<s:sapphire xmlns:s="urn:ge:sapphire:sapphire_1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.0.1">
+    <genericResponse status="ack" xmlns="urn:ge:sapphire:genericMsg_1">
+        <header xmlns="urn:ge:sapphire:base_1">
+            <sessionID V="0800190000001234C7627B00"/>
+            <msgCHN V="1"/>
+            <replytoMsgSQN V="9"/>
+            <responseID V="500" more="."/>
+            <creationDateTime V="2026-01-02T03:04:05Z"/>
+        </header>
+    </genericResponse>
+</s:sapphire>
