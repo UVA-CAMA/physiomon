@@ -16,7 +16,7 @@ Page numbers in parentheses, such as (3-19), refer to the HSDI reference manual.
 
 The decoder is a separate module, `../hsdi-decode`. It reads the streams described below and shares no code with the bridge.
 
-Build with Go 1.24 or later:
+Build with Go 1.27 or later:
 
 ```
 go build ./cmd/...

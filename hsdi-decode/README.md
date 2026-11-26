@@ -14,7 +14,7 @@ hsdi-decode decodes what `../hsdi-bridge` publishes. It reads the raw and state 
 | `cmd/hsdi-decode` | The decoder program. |
 | `proto/decoded.proto` | The decoded message format. |
 
-Build with Go 1.24 or later:
+Build with Go 1.27 or later:
 
 ```
 go build ./cmd/...
